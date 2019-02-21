@@ -8,7 +8,6 @@
  */
 
 class ePayments {
-  private $url = 'https://test-ms.epayments.com';
   private $sandbox = true;
   private $shopId;
   private $secretKey;
@@ -28,8 +27,7 @@ class ePayments {
   /**
    * Задает тестовый или боевой режим
    */
-  public function setTestMode(bool $bool = true): ?boolean{
-    $this->url = $bool ? 'https://test-ms.epayments.com' : 'https://ms.epayments.com';
+  public function setTestMode(bool $bool = true): bool{
     return $this->sandbox = $bool;
   }
 
@@ -202,6 +200,8 @@ class ePayments {
 
   public function getUrl(): ?array{
 
+    $url = $this->sandbox ? 'https://test-ms.epayments.com' : 'https://ms.epayments.com';
+
     $query = http_build_query([
       'shopId' => $this->getShopId(),
       'orderNumber' => $this->getOrderNumber(),
@@ -218,7 +218,7 @@ class ePayments {
     ]);
 
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $this->url . '/api/v1/public/paymentpage?' . $query);
+    curl_setopt($ch, CURLOPT_URL, $url . '/api/v1/public/paymentpage?' . $query);
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
@@ -232,20 +232,18 @@ class ePayments {
   /**
    * Редирект на платежную систему или вывод ошибки
    */
-  public function send() {
+  public function send(): void {
 
     $link = $this->getUrl();
 
     if ($link['error']) {
       echo $link['error']['messages'][0];
-      return false;
     }
 
     if ($link['result']['urlToRedirect']) {
       header('Location: ' . $link['result']['urlToRedirect']);
       exit;
     }
-    echo 'Error. Create a ticket in panel';
-    return false;
+    echo '. Create a ticket in panel';
   }
 }
