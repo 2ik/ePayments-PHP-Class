@@ -8,26 +8,84 @@
  */
 
 class ePayments {
+  /**
+   * Ссылка на систему оплаты. По умолчанию в тестовом режиме
+   */
+  private $url = 'https://test-ms.epayments.com';
+  /**
+   * Тестовый режим. По умолчанию включен!
+   */
   private $sandbox = true;
+  /**
+   * shopId  выдается при регистрации в системе
+   */
   private $shopId;
+  /**
+   * secretKey выдается при регистрации в системе
+   */
   private $secretKey;
+  /**
+   * UserName выдается при регистрации в системе
+   */
+  private $UserName;
+  /**
+   * Password выдается при регистрации в системе
+   */
+  private $Password;
+  /**
+   * Токен при авторизации через api
+   */
+  private $token;
+  /**
+   * Название заказа
+   */
   private $orderName;
+  /**
+   * Номер заказа в интернет магазине
+   */
   private $orderNumber;
+  /**
+   * Сумма заказа
+   */
   private $orderSumAmount;
+  /**
+   * Валюта
+   */
   private $orderSumCurrency = 'USD';
-
-  // Необязательные
+  /**
+   * Редирект на платежную систему
+   */
+  private $link;
+  /**
+   * Язык в платежной системе
+   */
   private $language;
+  /**
+   * Тип оплаты
+   */
   private $gatewayId;
+  /**
+   * Ссылка на возврат при не успешном пополнении
+   */
   private $shopFailUrl;
+  /**
+   * Ссылка на возврат при успешном пополнении
+   */
   private $shopSuccessUrl;
+  /**
+   * Ссылка на возврат "Назад в магазин"
+   */
   private $shopDefaultUrl;
+  /**
+   * Время жизни ссылки на инвойс
+   */
   private $operationLifeTime;
 
   /**
    * Задает тестовый или боевой режим
    */
-  public function setTestMode(bool $bool = true): bool{
+  public function setTestMode(bool $bool = true): ?bool{
+    $this->url = $bool ? 'https://test-ms.epayments.com' : 'https://ms.epayments.com';
     return $this->sandbox = $bool;
   }
 
@@ -43,6 +101,20 @@ class ePayments {
    */
   public function setSecretKey(string $value): ?string {
     return $this->secretKey = $value;
+  }
+
+  /**
+   * UserName - выдается при регистрации в мерчанте
+   */
+  public function setUserName(string $value): ?string {
+    return $this->UserName = $value;
+  }
+
+  /**
+   * Password - выдается при регистрации в мерчанте
+   */
+  public function setPassword(string $value): ?string {
+    return $this->Password = $value;
   }
 
   /**
@@ -158,6 +230,14 @@ class ePayments {
     return $this->secretKey;
   }
 
+  public function getUserName(): ?string {
+    return $this->UserName;
+  }
+
+  public function getPassword(): ?string {
+    return $this->Password;
+  }
+
   public function getOrderNumber(): ?string {
     return $this->orderNumber;
   }
@@ -198,9 +278,34 @@ class ePayments {
     return $this->operationLifeTime;
   }
 
-  public function getUrl(): ?array{
+  /**
+   * Авторизация (получение токена)
+   */
+  public function getToken() {
 
-    $url = $this->sandbox ? 'https://test-ms.epayments.com' : 'https://ms.epayments.com';
+    $fields = http_build_query([
+      'grant_type' => 'password',
+      'username' => $this->getUserName(),
+      'password' => $this->getPassword(),
+    ]);
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $this->url . '/api/v1/oauth/token');
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $fields);
+    $result = json_decode(curl_exec($ch));
+    curl_close($ch);
+
+    if ($result->access_token) {
+      return $this->token = $result->access_token;
+    }
+    return false;
+  }
+
+  public function getUrl() {
 
     $query = http_build_query([
       'shopId' => $this->getShopId(),
@@ -218,15 +323,61 @@ class ePayments {
     ]);
 
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url . '/api/v1/public/paymentpage?' . $query);
+    curl_setopt($ch, CURLOPT_URL, $this->url . '/api/v1/public/paymentpage?' . $query);
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-    $result = json_decode(curl_exec($ch), true);
+    $result = json_decode(curl_exec($ch));
+    curl_close($ch);
+
+    $this->link = $result->result->urlToRedirect;
+
+    return $result;
+  }
+
+  /**
+   * Проверка транзакции
+   * @param int $id transaction id
+   * @param string $orderNumber
+   */
+  public function check(int $id, string $orderNumber): ?bool{
+
+    $result = $this->getOperation($id);
+
+    if ($result->error) {
+      return false;
+    }
+
+    if ($result->result->operations[0]->id !== $id
+      || $result->result->operations[0]->state !== 'Done'
+      || $result->result->operations[0]->orderNumber !== $orderNumber
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Получение операции по id
+   */
+  public function getOperation(int $id) {
+    $query = http_build_query([
+      'operationId' => $id,
+    ]);
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $this->url . '/api/v1/operation?' . $query);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+      'Content-Type: application/json',
+      'Authorization: Bearer ' . $this->getToken(),
+    ));
+    $result = json_decode(curl_exec($ch));
     curl_close($ch);
 
     return $result;
-
   }
 
   /**
@@ -234,14 +385,14 @@ class ePayments {
    */
   public function send(): void {
 
-    $link = $this->getUrl();
+    $link = $this->link ?: $this->getUrl();
 
-    if ($link['error']) {
-      echo $link['error']['messages'][0];
+    if ($link->error) {
+      echo $link->error->messages[0];
     }
 
-    if ($link['result']['urlToRedirect']) {
-      header('Location: ' . $link['result']['urlToRedirect']);
+    if ($link->result->urlToRedirect) {
+      header('Location: ' . $link->result->urlToRedirect);
       exit;
     }
     echo '. Create a ticket in panel';
