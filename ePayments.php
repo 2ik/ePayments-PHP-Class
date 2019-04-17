@@ -299,7 +299,7 @@ class ePayments {
     $result = json_decode(curl_exec($ch));
     curl_close($ch);
 
-    if ($result->access_token) {
+    if (isset($result->access_token)) {
       return $this->token = $result->access_token;
     }
     return false;
@@ -330,6 +330,14 @@ class ePayments {
     $result = json_decode(curl_exec($ch));
     curl_close($ch);
 
+    if (empty($result)) {
+      throw new \Exception("Error Processing Request");
+    }
+
+    if (empty($result->result->urlToRedirect)) {
+      throw new \Exception("Сould not get a link to pay");
+    }
+
     $this->link = $result->result->urlToRedirect;
 
     return $result;
@@ -344,7 +352,7 @@ class ePayments {
 
     $result = $this->getOperation($id);
 
-    if ($result->error) {
+    if (isset($result->error)) {
       return false;
     }
 
@@ -387,14 +395,13 @@ class ePayments {
 
     $link = $this->link ?: $this->getUrl();
 
-    if ($link->error) {
-      echo $link->error->messages[0];
+    if (isset($link->error)) {
+      throw new \Exception($link->error->messages[0]);
     }
 
-    if ($link->result->urlToRedirect) {
+    if (isset($link->result->urlToRedirect)) {
       header('Location: ' . $link->result->urlToRedirect);
       exit;
     }
-    echo '. Create a ticket in panel';
   }
 }
